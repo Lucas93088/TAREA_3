@@ -1,7 +1,7 @@
-#include <iostream>  
+#include <iostream>   
 #include <vector>     
 #include <string>     
-#include <sstream>   
+#include <sstream>    
 #include <fstream>    
 #include <ctime>      
 #include <random>     
@@ -212,32 +212,38 @@ int main() {
     vector<User> testUsers(allUsers.begin(), allUsers.begin() + N);
     cout << "\nPreparando prueba con " << N << " usuarios." << endl;
 
+    // Declaración única de variables de tiempo
+    clock_t start_time, end_time;
+    double timeInsertId, timeInsertSN;
+    double timeSearchIdSuccess, timeSearchSnSuccess;
+    double timeSearchIdFail, timeSearchSnFail;
+
     // --- Rendimiento en la Inserción ---
     cout << "\n--- Rendimiento en la Creación del BST con N = " << N << " ---" << endl;
     
     // Prueba de creación con ID como clave
     BST bst_id_key;
-    clock_t start = clock();
+    start_time = clock();
     for (const auto& user : testUsers) {
-        bst_id_key.insert(user, true);//va agragando de a poco los usuarios en el ciclo for
+        bst_id_key.insert(user, true);
     }
-    clock_t end = clock();
-    double timeInsert = static_cast<double>(end - start) / CLOCKS_PER_SEC;        //calculo del tiempo
-    cout << "Tiempo de inserción total en BST (ID como clave): " << fixed << setprecision(6) << timeInsert << " segundos" << endl;
+    end_time = clock();
+    timeInsertId = static_cast<double>(end_time - start_time) * 1000.0 / CLOCKS_PER_SEC; // En milisegundos
+    cout << "Tiempo de inserción total en BST (ID como clave): " << fixed << setprecision(3) << timeInsertId << " ms" << endl;
 
     // Prueba de creación con ScreenName como clave
     BST bst_screenname_key;
-    clock_t start = clock();
+    start_time = clock();
     for (const auto& user : testUsers) {
         bst_screenname_key.insert(user, false);
     }
-    clock_t end = clock();
-    double timeInsert = static_cast<double>(end - start) / CLOCKS_PER_SEC;        //calculo del tiempo
-    cout << "Tiempo de inserción total en BST (ScreenName como clave): " << fixed << setprecision(6) << timeInsert << " segundos" << endl;
+    end_time = clock();
+    timeInsertSN = static_cast<double>(end_time - start_time) * 1000.0 / CLOCKS_PER_SEC; // En milisegundos
+    cout << "Tiempo de inserción total en BST (ScreenName como clave): " << fixed << setprecision(3) << timeInsertSN << " ms" << endl;
 
     // --- Tamaño de la Estructura ---
     cout << "\n--- Tamaño del BST con N = " << N << " ---" << endl;
-    cout << fixed << setprecision(2);
+    cout << fixed << setprecision(2); // Set precision for KB output
 
     cout << "Tamaño del BST (ID como clave): " << bst_id_key.getSizeInBytes() / 1024.0 << " KB" << endl;
     cout << "Tamaño del BST (ScreenName como clave): " << bst_screenname_key.getSizeInBytes() / 1024.0 << " KB" << endl;
@@ -257,26 +263,26 @@ int main() {
     uniform_int_distribution<> distrib_successful(0, N - 1);
 
     // BST (ID como clave) - Búsquedas exitosas
-    clock_t start = clock();
+    start_time = clock();
     for (int i = 0; i < numSearches; ++i) {
         int randomIndex = distrib_successful(gen); // Obtiene un índice aleatorio
-        bst_id_key.search(testUsers[randomIndex].id, "", true);//busca el ID aleatorio
+        bst_id_key.search(testUsers[randomIndex].id, "", true);
     }
-    clock_t end = clock();
-    double timeSearch = static_cast<double>(end - start)*1000.0 / CLOCKS_PER_SEC;        //calculo del tiempo
-    cout << "  BST (ID) - Tiempo Búsquedas Exitosas: " << fixed << setprecision(6) << timeSearch << " ms (Promedio: " 
-              << timeSearch / numSearches << " ms)" << endl;
+    end_time = clock();
+    timeSearchIdSuccess = static_cast<double>(end_time - start_time) * 1000.0 / CLOCKS_PER_SEC; // En milisegundos
+    cout << "  BST (ID) - Tiempo Búsquedas Exitosas: " << fixed << setprecision(3) << timeSearchIdSuccess << " ms (Promedio: " 
+              << timeSearchIdSuccess / numSearches << " ms)" << endl;
 
     // BST (ScreenName como clave) - Búsquedas exitosas
-    clock_t start = clock();
+    start_time = clock();
     for (int i = 0; i < numSearches; ++i) {
         int randomIndex = distrib_successful(gen); // Obtiene un índice aleatorio
-        bst_screenname_key.search(0, testUsers[randomIndex].screenName, false);//obtinene un screenName aleatorio
+        bst_screenname_key.search(0, testUsers[randomIndex].screenName, false);
     }
-    clock_t end = clock();
-    double timeSearch = static_cast<double>(end - start)*1000.0 / CLOCKS_PER_SEC;        //calculo del tiempo
-    cout << "  BST (SN) - Tiempo Búsquedas Exitosas: " << fixed << setprecision(6) << timeSearch << " ms (Promedio: " 
-              << timeSearch / numSearches << " ms)" << endl;
+    end_time = clock();
+    timeSearchSnSuccess = static_cast<double>(end_time - start_time) * 1000.0 / CLOCKS_PER_SEC; // En milisegundos
+    cout << "  BST (SN) - Tiempo Búsquedas Exitosas: " << fixed << setprecision(3) << timeSearchSnSuccess << " ms (Promedio: " 
+              << timeSearchSnSuccess / numSearches << " ms)" << endl;
 
     // Búsquedas No Exitosas
     cout << "\n--- Búsquedas No Exitosas (" << numSearches << " búsquedas) ---" << endl;
@@ -285,26 +291,26 @@ int main() {
     uniform_int_distribution<> distrib_unsuccessful(N, allUsers.size() - 1);
     
     // BST (ID como clave) - Búsquedas no exitosas
-    clock_t start = clock();
+    start_time = clock();
     for (int i = 0; i < numSearches; ++i) {
         int randomIndex = distrib_unsuccessful(gen); // Obtiene un índice aleatorio
         bst_id_key.search(allUsers[randomIndex].id, "", true); // Usa el ID de un usuario no insertado
     }
-    clock_t end = clock();
-    double timeSearch = static_cast<double>(end - start)*1000.0 / CLOCKS_PER_SEC;        //calculo del tiempo
-    cout << "  BST (ID) - Tiempo Búsquedas No Exitosas: " << fixed << setprecision(6) << timeSearch << " ms (Promedio: " 
-              << timeSearch / numSearches << " ms)" << endl;
+    end_time = clock();
+    timeSearchIdFail = static_cast<double>(end_time - start_time) * 1000.0 / CLOCKS_PER_SEC; // En milisegundos
+    cout << "  BST (ID) - Tiempo Búsquedas No Exitosas: " << fixed << setprecision(3) << timeSearchIdFail << " ms (Promedio: " 
+              << timeSearchIdFail / numSearches << " ms)" << endl;
 
     // BST (ScreenName como clave) - Búsquedas no exitosas
-    clock_t start = clock();
+    start_time = clock();
     for (int i = 0; i < numSearches; ++i) {
-        int randomIndex = distrib_unsuccessful(gen); // Obtiene un screenName aleatorio
+        int randomIndex = distrib_unsuccessful(gen); // Obtiene un índice aleatorio
         bst_screenname_key.search(0, allUsers[randomIndex].screenName, false); // Usa el ScreenName de un usuario no insertado
     }
-    clock_t end = clock();
-    double timeSearch = static_cast<double>(end - start)*1000.0 / CLOCKS_PER_SEC;        //calculo del tiempo
-    cout << "  BST (SN) - Tiempo Búsquedas No Exitosas: " << fixed << setprecision(6) << timeSearch << " ms (Promedio: " 
-              << timeSearch / numSearches << " ms)" << endl;
+    end_time = clock();
+    timeSearchSnFail = static_cast<double>(end_time - start_time) * 1000.0 / CLOCKS_PER_SEC; // En milisegundos
+    cout << "  BST (SN) - Tiempo Búsquedas No Exitosas: " << fixed << setprecision(3) << timeSearchSnFail << " ms (Promedio: " 
+              << timeSearchSnFail / numSearches << " ms)" << endl;
 
     return 0;
 }
