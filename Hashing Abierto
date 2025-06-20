@@ -1,0 +1,463 @@
+#include <iostream> // Para entrada/salida estándar (cout, cin, cerr)
+#include <vector>   // Para usar std::vector (tanto para la tabla principal como para las cadenas)
+#include <string>   // Para usar std::string (nombres de usuario, lectura de archivos)
+#include <sstream>  // Para usar std::stringstream (parseo de líneas CSV)
+#include <fstream>  // Para operaciones de archivo (ifstream para leer el CSV)
+#include <ctime>    // Para medir tiempos de ejecución (clock_t, clock(), CLOCKS_PER_SEC)
+#include <random>   // Para generar números aleatorios (random_device, mt19937, uniform_int_distribution)
+#include <algorithm> // Para usar std::max
+#include <iomanip>  // Para formatear la salida (fixed, setprecision)
+#include <functional> // Para usar std::hash (para claves de tipo string)
+#include <cmath>    // Para funciones matemáticas (sqrt, floor para h2)
+#include <list>     // Aunque no se usa directamente en esta versión, se incluye por si se considerara std::list para las cadenas.
+
+using namespace std;
+
+// Estructura para representar un Usuario, con su ID y nombre de pantalla.
+// Esta estructura se usará como el tipo de dato almacenado en la tabla hash.
+struct User {
+    long long id;       // Identificador único del usuario, tipo entero grande.
+    string screenName;  // Nombre de pantalla del usuario.
+
+    // Constructor por defecto
+    User() : id(0), screenName("") {}
+    // Constructor con parámetros para inicializar el usuario
+    User(long long _id, const string& _screenName) : id(_id), screenName(_screenName) {}
+};
+
+// Función para parsear un campo individual de una línea CSV.
+// Maneja comas dentro de campos si están entre comillas dobles.
+string parseCsvField(stringstream& ss) {
+    string field; // Variable para almacenar el campo extraído
+    char c;       // Carácter temporal para la lectura
+
+    // Consume espacios o tabulaciones al inicio del campo
+    while (ss.peek() != EOF && (ss.peek() == ' ' || ss.peek() == '\t')) {
+        ss.get(c);
+    }
+
+    // Verifica si el campo comienza con comillas dobles
+    if (ss.peek() == '"') {
+        ss.get(c); // Consume la comilla de apertura
+        bool in_quotes = true;
+        while (in_quotes && ss.get(c)) { // Lee carácter por carácter dentro de las comillas
+            if (c == '"') { // Si encuentra una comilla
+                if (ss.peek() == '"') { // Y el siguiente carácter también es una comilla (escapada)
+                    field += '"'; // Añade una sola comilla al campo
+                    ss.get(c);    // Consume la segunda comilla
+                } else {
+                    in_quotes = false; // Es la comilla de cierre
+                }
+            } else {
+                field += c; // Añade el carácter normal al campo
+            }
+        }
+        // Después de cerrar comillas, consume cualquier carácter hasta la siguiente coma o fin de línea
+        while (ss.peek() != EOF && ss.peek() != ',') {
+            ss.get(c);
+        }
+    } else {
+        // Si el campo no está entre comillas, simplemente lee hasta la próxima coma
+        getline(ss, field, ',');
+        return field; // Retorna el campo leído
+    }
+
+    // Si hay una coma después del campo (para el siguiente campo), consúmela
+    if (ss.peek() == ',') {
+        ss.get(c);
+    }
+    return field; // Retorna el campo extraído
+}
+
+// Función para leer el dataset desde un archivo CSV y cargarlo en un vector de Users.
+vector<User> readDataset(const string& filename) {
+    vector<User> users;      // Vector para almacenar los usuarios leídos
+    ifstream file(filename); // Objeto para leer el archivo
+
+    // Verifica si el archivo pudo abrirse correctamente
+    if (!file.is_open()) {
+        cerr << "Error: No se pudo abrir el archivo " << filename << endl;
+        return users; // Retorna un vector vacío si hay un error
+    }
+
+    string line;
+    getline(file, line); // Lee y descarta la primera línea (se asume que es la cabecera)
+
+    // Lee el archivo línea por línea hasta el final
+    while (getline(file, line)) {
+        User user;             // Crea un nuevo objeto User para cada línea
+        stringstream ss(line); // Crea un stringstream para parsear la línea
+
+        // Intenta parsear el ID del usuario
+        string id_str = parseCsvField(ss);	
+        try {
+            user.id = stoll(id_str); // Convierte la cadena del ID a long long
+        } catch (const exception& e) {
+            // Si la conversión falla (ej. el ID no es un número), imprime un error (opcional)
+            // y continúa con la siguiente línea.
+            // cerr << "Error al parsear ID: '" << id_str << "' en línea: '" << line << "' - " << e.what() << endl;
+            continue; 
+        }
+
+        // Parsea el nombre de pantalla del usuario
+        user.screenName = parseCsvField(ss);
+        users.push_back(user); // Añade el usuario al vector
+    }
+    file.close(); // Cierra el archivo
+    return users; // Retorna el vector de usuarios
+}
+
+// Función auxiliar para encontrar el siguiente número primo a partir de n.
+// Usado para asegurar que el tamaño de la tabla hash sea primo, lo que ayuda a la distribución.
+int getNextPrime(int n) {
+    if (n <= 1) return 2; // El primer primo es 2
+    int prime = n;
+    bool found = false;
+    while (!found) {
+        prime++; // Incrementa para buscar el siguiente número
+        bool isPrime = true;
+        // Comprueba la divisibilidad solo hasta la raíz cuadrada del número para optimizar
+        for (int i = 2; i * i <= prime; i++) {
+            if (prime % i == 0) { // Si es divisible, no es primo
+                isPrime = false;
+                break;
+            }
+        }
+        if (isPrime) found = true; // Si no se encontraron divisores, es primo
+    }
+    return prime; // Retorna el número primo encontrado
+}
+
+// Constante global para el método de la multiplicación.
+// A = (sqrt(5) - 1) / 2 es la proporción áurea inversa, comúnmente usada para h2.
+const double A = (sqrt(5.0) - 1.0) / 2.0;
+
+/**********************/
+/*** Funciones Hash ***/
+/**********************/
+
+// Método de la división (h1)
+// k: clave (ID long long o string)
+// n: tamaño de la tabla hash
+// El operador % distribuye la clave en el rango [0, n-1].
+
+// h1 para claves de tipo long long
+int h1(long long k, int n) {
+    return static_cast<int>(k % n);
+}
+// h1 para claves de tipo string (utiliza std::hash para convertir el string a un tamaño_t numérico)
+int h1(const string& k_str, int n) {
+    // std::hash<string>{}() convierte el string en un valor hash de tamaño_t
+    return static_cast<int>(hash<string>{}(k_str) % n);
+}
+
+// Método de la multiplicación (h2)
+// k: clave (ID long long o string)
+// n: tamaño de la tabla hash
+// Este método tiende a distribuir mejor las claves que no son números enteros directamente.
+
+// h2 para claves de tipo long long
+int h2(long long k, int n) {
+    // Multiplica la clave por la constante A y toma la parte fraccionaria (modulo 1)
+    double val = static_cast<double>(k) * A;
+    val -= floor(val); // Esto equivale a (val % 1)
+    // Multiplica la parte fraccionaria por el tamaño de la tabla y lo convierte a entero
+    return static_cast<int>(n * val);
+}
+// h2 para claves de tipo string (adapta el valor hash de std::hash a la fórmula de multiplicación)
+int h2(const string& k_str, int n) {
+    size_t hashed_val = hash<string>{}(k_str); // Obtiene un valor hash numérico del string
+    double val = static_cast<double>(hashed_val) * A;
+    val -= floor(val);
+    return static_cast<int>(n * val);
+}
+
+/****************************************************/
+/*** Estrategias de Función Hash Principal        ***/
+/****************************************************/
+// Enum para seleccionar qué función hash usar como primaria en la tabla
+enum HashFunctionType { H1_DIVISION, H2_MULTIPLICATION };
+
+// Clase para la Tabla Hash con Encadenamiento Separado (Hashing Abierto)
+class HashTableOpen {
+private:
+    // La tabla principal es un vector de vectores de User.
+    // Cada 'vector<User>' interno es una "cadena" donde se almacenan los elementos que colisionan.
+    vector<vector<User>> table;
+    int numElements;        // Número total de elementos actualmente almacenados en la tabla.
+    int tableSize;          // Tamaño actual del array principal de cubetas.
+    bool useIdAsKey_m;      // Bandera para indicar si se usa ID (true) o ScreenName (false) como clave.
+    HashFunctionType hashFunctionType_m; // El tipo de función hash principal a utilizar (h1 o h2).
+    // Factor de carga máximo antes de realizar un rehash.
+    // Para encadenamiento, puede ser 1.0 o incluso mayor, ya que el rendimiento degrada de forma más suave.
+    const double MAX_LOAD_FACTOR = 1.0; 
+
+    // Función auxiliar privada para obtener el índice hash.
+    // Selecciona la función hash (h1 o h2) y la sobrecarga correcta (long long o string)
+    // basándose en las configuraciones de la tabla.
+    int getHashCode(long long k_id, const string& k_sn) {
+        if (useIdAsKey_m) { // Si la clave es el ID
+            if (hashFunctionType_m == H1_DIVISION) {
+                return h1(k_id, tableSize); // Usa h1 con el ID
+            } else { // H2_MULTIPLICATION
+                return h2(k_id, tableSize); // Usa h2 con el ID
+            }
+        } else { // Si la clave es el ScreenName
+            if (hashFunctionType_m == H1_DIVISION) {
+                return h1(k_sn, tableSize); // Usa h1 con el ScreenName
+            } else { // H2_MULTIPLICATION
+                return h2(k_sn, tableSize); // Usa h2 con el ScreenName
+            }
+        }
+    }
+
+    // Función para redimensionar y reconstruir la tabla hash (rehash).
+    // Se llama cuando el factor de carga excede MAX_LOAD_FACTOR.
+    void rehash() {
+        int oldTableSize = tableSize; // Guarda el tamaño actual de la tabla
+        // Duplica el tamaño de la tabla y encuentra el siguiente número primo para el nuevo tamaño.
+        tableSize = getNextPrime(oldTableSize * 2);
+        
+        // Mueve la tabla antigua a una variable temporal y crea una nueva tabla vacía
+        // con el nuevo tamaño. Esto evita copias innecesarias y libera memoria de la tabla antigua.
+        vector<vector<User>> oldTable = std::move(table);
+        table.assign(tableSize, vector<User>()); // Redimensiona la tabla con vectores vacíos para las nuevas cubetas
+        numElements = 0; // Reinicia el contador de elementos, se recontará durante la reinserción
+
+        // Itera sobre todas las cadenas (cubetas) de la tabla antigua
+        for (int i = 0; i < oldTableSize; ++i) {
+            // Y para cada usuario en esas cadenas...
+            for (const auto& user : oldTable[i]) {
+                // ...lo re-inserta en la nueva tabla.
+                // El método insert se encargará de calcular el nuevo índice hash
+                // y añadirlo a la cadena correspondiente en la nueva tabla.
+                insert(user); 
+            }
+        }
+    }
+
+public:
+    // Constructor de la tabla hash.
+    // initialSize: Tamaño inicial sugerido para la tabla.
+    // useIdAsKey_param: True si se usa ID como clave, False para ScreenName.
+    // hfType: Tipo de función hash a usar (H1_DIVISION o H2_MULTIPLICATION).
+    HashTableOpen(int initialSize, bool useIdAsKey_param, HashFunctionType hfType) :
+        numElements(0), // Inicializa el contador de elementos a 0
+        tableSize(getNextPrime(initialSize)), // Calcula el tamaño inicial primo de la tabla
+        useIdAsKey_m(useIdAsKey_param),       // Establece la clave a usar
+        hashFunctionType_m(hfType) {          // Establece la función hash
+        // Inicializa el vector principal 'table' con 'tableSize' cubetas vacías (vectores vacíos).
+        table.assign(tableSize, vector<User>()); 
+    }
+
+    // Método para insertar un nuevo usuario en la tabla hash.
+    void insert(const User& newUser) {
+        // Verifica si el factor de carga excederá el máximo permitido con la nueva inserción.
+        if (static_cast<double>(numElements + 1) / tableSize > MAX_LOAD_FACTOR) {
+            rehash(); // Si es así, realiza un rehash
+        }
+
+        long long current_id = newUser.id;       // Obtiene el ID del nuevo usuario
+        string current_sn = newUser.screenName; // Obtiene el ScreenName del nuevo usuario
+
+        // Calcula el índice de la cubeta donde debe ir el nuevo usuario
+        int index = getHashCode(current_id, current_sn);
+
+        // Opcional: Verificar si el elemento ya existe para evitar duplicados.
+        // Si la clave ya existe en la cadena, no se inserta de nuevo (comportamiento de un set/map).
+        for (const auto& existingUser : table[index]) {
+            if ((useIdAsKey_m && existingUser.id == current_id) || 
+                (!useIdAsKey_m && existingUser.screenName == current_sn)) {
+                return; // Elemento con la misma clave ya existe, no se inserta.
+            }
+        }
+
+        // Añade el nuevo usuario al final del vector (cadena) en la cubeta calculada.
+        table[index].push_back(newUser);
+        numElements++; // Incrementa el contador de elementos
+    }
+
+    // Método para buscar un usuario en la tabla hash.
+    // idToSearch: ID del usuario a buscar (relevante si useIdAsKey_m es true)
+    // screenNameToSearch: ScreenName del usuario a buscar (relevante si useIdAsKey_m es false)
+    User* search(long long idToSearch, const string& screenNameToSearch) {
+        long long current_id = idToSearch;       // Clave ID para la búsqueda
+        string current_sn = screenNameToSearch; // Clave ScreenName para la búsqueda
+
+        // Calcula el índice de la cubeta donde se esperaría encontrar el usuario
+        int index = getHashCode(current_id, current_sn);
+
+        // Recorre linealmente la cadena (vector) en esa cubeta
+        for (auto& userInChain : table[index]) {
+            // Compara la clave del usuario actual en la cadena con la clave de búsqueda
+            if ((useIdAsKey_m && userInChain.id == current_id) || 
+                (!useIdAsKey_m && userInChain.screenName == current_sn)) {
+                return &userInChain; // Si coincide, devuelve un puntero al usuario encontrado
+            }
+        }
+        return nullptr; // Si se recorrió toda la cadena y no se encontró, devuelve nullptr
+    }
+
+    // Calcula el tamaño aproximado en bytes ocupado por la tabla hash.
+    long long getSizeInBytes() const {
+        // Tamaño del objeto std::vector que contiene las cubetas (punteros/metadata).
+        long long totalSize = sizeof(vector<vector<User>>); 
+        // Memoria asignada para los encabezados de los vectores internos (las cadenas).
+        totalSize += table.capacity() * sizeof(vector<User>); 
+
+        // Suma el espacio ocupado por los objetos User dentro de cada cadena
+        // y el espacio asignado para las cadenas (strings) dentro de esos User.
+        for (const auto& chain : table) {
+            totalSize += chain.capacity() * sizeof(User); // Capacidad real de los Users en esta cadena
+            for (const auto& user : chain) {
+                totalSize += user.screenName.capacity(); // Capacidad de la cadena (string) para el screenName
+            }
+        }
+        return totalSize;
+    }
+};
+
+
+// FUNCION MAIN PARA REALIZAR LAS PRUEBAS DE RENDIMIENTO
+int main() {
+    string datasetPath = "data.csv"; // Ruta al archivo del dataset. ¡Asegúrate de que exista!
+    cout << "--- Prueba Interactiva de Tabla Hash (Hashing Abierto / Encadenamiento Separado) ---" << endl;
+    cout << "Cargando dataset completo desde '" << datasetPath << "'..." << endl;
+    vector<User> allUsers = readDataset(datasetPath); // Carga todos los usuarios del CSV
+
+    // Verifica si la carga del dataset fue exitosa
+    if (allUsers.empty()) {
+        cerr << "Error: No se pudieron cargar usuarios desde el dataset. Asegúrate de que el archivo existe y es legible." << endl;
+        return 1; // Sale con un código de error
+    }
+    cout << "Dataset completo cargado. Total de usuarios disponibles: " << allUsers.size() << endl;
+
+    int N; // Variable para el número de usuarios a probar
+    cout << "\nIngresa el número de usuarios (N) para la prueba (max " << allUsers.size() << "): ";
+    cin >> N; // Pide al usuario que ingrese N
+
+    // Valida la entrada de N
+    if (N <= 0 || N > allUsers.size()) {
+        cerr << "Número de usuarios inválido. Debe ser entre 1 y " << allUsers.size() << "." << endl;
+        return 1; // Sale con un código de error
+    }
+
+    // Crea un subconjunto de usuarios para la prueba (los primeros N usuarios del dataset cargado)
+    vector<User> testUsers(allUsers.begin(), allUsers.begin() + N);
+    cout << "\nPreparando prueba con " << N << " usuarios." << endl;
+
+    // Declaración de variables para medir el tiempo
+    clock_t start_time, end_time;
+    double timeInsert, timeSearchSuccess, timeSearchFail; 
+
+    // Define un tamaño inicial para la tabla hash.
+    // Para encadenamiento, es común que el factor de carga inicial sea alrededor de 1.0,
+    // por lo que el tamaño inicial se elige cercano a N.
+    int initialTableSize = getNextPrime(N); 
+
+    // Configuración para la generación de números aleatorios para las búsquedas
+    random_device rd;  // Fuente de entropía no determinística
+    mt19937 gen(rd()); // Motor generador de números pseudoaleatorios
+    // Número de búsquedas a realizar (mínimo 100, o 10% de N, el que sea mayor)
+    int numSearches = max(100, N / 10); 
+    // Distribución uniforme para seleccionar índices para búsquedas exitosas (dentro de testUsers)
+    uniform_int_distribution<> distrib_successful(0, N - 1); 
+    // Distribución uniforme para seleccionar índices para búsquedas no exitosas (fuera de testUsers)
+    uniform_int_distribution<> distrib_unsuccessful(N, allUsers.size() - 1); 
+
+
+    // --- INICIANDO PRUEBA CON HASHING ABIERTO (Encadenamiento Separado) ---
+    cout << "\n========================================================" << endl;
+    cout << "--- RESULTADOS DE PRUEBA: HASHING ABIERTO (N = " << N << ") ---" << endl;
+    cout << "========================================================" << endl;
+
+    // --- Rendimiento en la Inserción (Hashing Abierto) ---
+    cout << "\n--- Rendimiento en la Creación de la Tabla Hash ---" << endl;
+    
+    // Prueba de creación e inserción con ID como clave (usando la función h2 por defecto)
+    HashTableOpen ht_id_key_open(initialTableSize, true, H2_MULTIPLICATION); 
+    start_time = clock(); // Marca el inicio del tiempo
+    for (const auto& user : testUsers) {
+        ht_id_key_open.insert(user); // Inserta cada usuario
+    }
+    end_time = clock(); // Marca el fin del tiempo
+    timeInsert = static_cast<double>(end_time - start_time) * 1000.0 / CLOCKS_PER_SEC; // Calcula el tiempo en ms
+    cout << "Tiempo de inserción total (ID como clave): " << fixed << setprecision(3) << timeInsert << " ms" << endl;
+
+    // Prueba de creación e inserción con ScreenName como clave (usando la función h2 por defecto)
+    HashTableOpen ht_screenname_key_open(initialTableSize, false, H2_MULTIPLICATION); 
+    start_time = clock();
+    for (const auto& user : testUsers) {
+        ht_screenname_key_open.insert(user);
+    }
+    end_time = clock();
+    timeInsert = static_cast<double>(end_time - start_time) * 1000.0 / CLOCKS_PER_SEC; 
+    cout << "Tiempo de inserción total (ScreenName como clave): " << fixed << setprecision(3) << timeInsert << " ms" << endl;
+
+    // --- Tamaño de la Estructura (Hashing Abierto) ---
+    cout << "\n--- Tamaño de la Tabla Hash con N = " << N << " ---" << endl;
+    cout << fixed << setprecision(2); // Formatea la salida a 2 decimales para el tamaño
+
+    cout << "Tamaño de la Tabla Hash (ID como clave): " << ht_id_key_open.getSizeInBytes() / 1024.0 << " KB" << endl;
+    cout << "Tamaño de la Tabla Hash (ScreenName como clave): " << ht_screenname_key_open.getSizeInBytes() / 1024.0 << " KB" << endl;
+
+    // --- Rendimiento en Búsquedas (Hashing Abierto) ---
+    cout << "\n--- Rendimiento en Búsquedas en Tabla Hash con N = " << N << " ---" << endl;
+    cout << "Realizando " << numSearches << " búsquedas por tipo." << endl;
+
+    // Búsquedas Exitosas
+    cout << "\n--- Búsquedas Exitosas (" << numSearches << " búsquedas) ---" << endl;
+
+    // Tabla Hash (ID como clave) - Búsquedas exitosas
+    start_time = clock();
+    for (int i = 0; i < numSearches; ++i) {
+        int randomIndex = distrib_successful(gen); // Selecciona un índice aleatorio de testUsers
+        ht_id_key_open.search(testUsers[randomIndex].id, ""); // Busca usando el ID del usuario
+    }
+    end_time = clock();
+    timeSearchSuccess = static_cast<double>(end_time - start_time) * 1000.0 / CLOCKS_PER_SEC; 
+    cout << "  (ID como clave) - Tiempo Búsquedas Exitosas: " << fixed << setprecision(3) << timeSearchSuccess << " ms (Promedio: " 
+              << timeSearchSuccess / numSearches << " ms)" << endl;
+
+    // Tabla Hash (ScreenName como clave) - Búsquedas exitosas
+    start_time = clock();
+    for (int i = 0; i < numSearches; ++i) {
+        int randomIndex = distrib_successful(gen); 
+        ht_screenname_key_open.search(0, testUsers[randomIndex].screenName); // Busca usando el ScreenName
+    }
+    end_time = clock();
+    timeSearchSuccess = static_cast<double>(end_time - start_time) * 1000.0 / CLOCKS_PER_SEC; 
+    cout << "  (ScreenName como clave) - Tiempo Búsquedas Exitosas: " << fixed << setprecision(3) << timeSearchSuccess << " ms (Promedio: " 
+              << timeSearchSuccess / numSearches << " ms)" << endl;
+
+    // Búsquedas No Exitosas
+    cout << "\n--- Búsquedas No Exitosas (" << numSearches << " búsquedas) ---" << endl;
+    
+    // Tabla Hash (ID como clave) - Búsquedas no exitosas
+    start_time = clock();
+    for (int i = 0; i < numSearches; ++i) {
+        int randomIndex = distrib_unsuccessful(gen); 
+        // Busca usando un ID que no debería estar en testUsers (viene de allUsers fuera de los primeros N)
+        ht_id_key_open.search(allUsers[randomIndex].id, ""); 
+    }
+    end_time = clock();
+    timeSearchFail = static_cast<double>(end_time - start_time) * 1000.0 / CLOCKS_PER_SEC; 
+    cout << "  (ID como clave) - Tiempo Búsquedas No Exitosas: " << fixed << setprecision(3) << timeSearchFail << " ms (Promedio: " 
+              << timeSearchFail / numSearches << " ms)" << endl;
+
+    // Tabla Hash (ScreenName como clave) - Búsquedas no exitosas
+    start_time = clock();
+    for (int i = 0; i < numSearches; ++i) {
+        int randomIndex = distrib_unsuccessful(gen); 
+        // Busca usando un ScreenName que no debería estar en testUsers
+        ht_screenname_key_open.search(0, allUsers[randomIndex].screenName); 
+    }
+    end_time = clock();
+    timeSearchFail = static_cast<double>(end_time - start_time) * 1000.0 / CLOCKS_PER_SEC; 
+    cout << "  (ScreenName como clave) - Tiempo Búsquedas No Exitosas: " << fixed << setprecision(3) << timeSearchFail << " ms (Promedio: " 
+              << timeSearchFail / numSearches << " ms)" << endl;
+
+    cout << "\n--- FIN DE LA PRUEBA ---" << endl;
+
+    return 0; // Termina el programa exitosamente
+}
