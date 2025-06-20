@@ -1,0 +1,313 @@
+#include <iostream>   // Para cout, cerr, cin
+#include <vector>     // Para vector
+#include <string>     // Para string
+#include <sstream>    // Para stringstream
+#include <fstream>    // Para ifstream
+#include <ctime>      // Para clock_t, clock(), CLOCKS_PER_SEC (medición de tiempo)
+#include <random>     // Para random_device, mt19937, uniform_int_distribution
+#include <algorithm>  // Para max
+#include <iomanip>    // Para fixed, setprecision
+
+// Permite usar elementos de la biblioteca estándar sin el prefijo 'std::'
+using namespace std;
+
+// --- 1. Definición de la estructura User ---
+struct User {
+    long long id;
+    string screenName;
+
+    User() : id(0), screenName("") {}
+    User(long long _id, const string& _screenName) : id(_id), screenName(_screenName) {}
+};
+
+// --- 2. Funciones de Utilidad (para leer CSV) ---
+
+string parseCsvField(stringstream& ss) {
+    string field;
+    char c;
+
+    while (ss.peek() != EOF && (ss.peek() == ' ' || ss.peek() == '\t')) {
+        ss.get(c);
+    }
+
+    if (ss.peek() == '"') {
+        ss.get(c);
+        bool in_quotes = true;
+        while (in_quotes && ss.get(c)) {
+            if (c == '"') {
+                if (ss.peek() == '"') {
+                    field += '"';
+                    ss.get(c);
+                } else {
+                    in_quotes = false;
+                }
+            } else {
+                field += c;
+            }
+        }
+        while (ss.peek() != EOF && ss.peek() != ',') {
+            ss.get(c);
+        }
+    } else {
+        getline(ss, field, ',');
+        return field;
+    }
+
+    if (ss.peek() == ',') {
+        ss.get(c);
+    }
+    return field;
+}
+
+vector<User> readDataset(const string& filename) {
+    vector<User> users;
+    ifstream file(filename);
+    string line;
+
+    if (!file.is_open()) {
+        cerr << "Error: No se pudo abrir el archivo " << filename << endl;
+        return users;
+    }
+
+    getline(file, line); // Salta la primera línea (encabezados del CSV)
+
+    while (getline(file, line)) {
+        User user;
+        stringstream ss(line);
+        string id_str = parseCsvField(ss);
+        try {
+            user.id = stoll(id_str);
+        } catch (const exception& e) {
+            cerr << "Error al parsear ID: '" << id_str << "' en línea: '" << line << "' - " << e.what() << endl;
+            continue;
+        }
+        user.screenName = parseCsvField(ss);
+        
+        users.push_back(user);
+    }
+    file.close();
+    return users;
+}
+
+// --- 3. Definición e Implementación del Árbol Binario de Búsqueda (BST) ---
+
+struct BSTNode {
+    User data;
+    BSTNode* left;
+    BSTNode* right;
+
+    BSTNode(const User& user) : data(user), left(nullptr), right(nullptr) {}
+};
+
+class BST {
+private:
+    BSTNode* root;
+
+    void deforestar(BSTNode* node) {
+        if (node == nullptr) {
+            return;
+        }
+        deforestar(node->left);
+        deforestar(node->right);
+        delete node;
+    }
+
+    BSTNode* insertRecursive(BSTNode* node, const User& newUser, bool useIdAsKey) {
+        if (node == nullptr) {
+            return new BSTNode(newUser);
+        }
+
+        if (useIdAsKey) {
+            if (newUser.id < node->data.id) {
+                node->left = insertRecursive(node->left, newUser, useIdAsKey);
+            } else if (newUser.id > node->data.id) {
+                node->right = insertRecursive(node->right, newUser, useIdAsKey);
+            }
+        } else {
+            if (newUser.screenName < node->data.screenName) {
+                node->left = insertRecursive(node->left, newUser, useIdAsKey);
+            } else if (newUser.screenName > node->data.screenName) {
+                node->right = insertRecursive(node->right, newUser, useIdAsKey);
+            }
+        }
+        return node;
+    }
+
+    BSTNode* searchRecursive(BSTNode* node, long long idToSearch, const string& screenNameToSearch, bool useIdAsKey) {
+        if (node == nullptr) {
+            return nullptr;
+        }
+
+        if (useIdAsKey) {
+            if (idToSearch == node->data.id) {
+                return node;
+            } else if (idToSearch < node->data.id) {
+                return searchRecursive(node->left, idToSearch, screenNameToSearch, useIdAsKey);
+            } else {
+                return searchRecursive(node->right, idToSearch, screenNameToSearch, useIdAsKey);
+            }
+        } else {
+            if (screenNameToSearch == node->data.screenName) {
+                return node;
+            } else if (screenNameToSearch < node->data.screenName) {
+                return searchRecursive(node->left, idToSearch, screenNameToSearch, useIdAsKey);
+            } else {
+                return searchRecursive(node->right, idToSearch, screenNameToSearch, useIdAsKey);
+            }
+        }
+    }
+
+    long long calculateSizeRecursive(BSTNode* node) const {
+        if (node == nullptr) {
+            return 0;
+        }
+        long long currentSize = sizeof(BSTNode) + node->data.screenName.length();
+        return currentSize + calculateSizeRecursive(node->left) + calculateSizeRecursive(node->right);
+    }
+
+public:
+    BST() : root(nullptr) {}
+    ~BST() {
+        deforestar(root);
+        root = nullptr;
+    }
+
+    void insert(const User& newUser, bool useIdAsKey) {
+        root = insertRecursive(root, newUser, useIdAsKey);
+    }
+
+    User* search(long long idToSearch, const string& screenNameToSearch, bool useIdAsKey) {
+        BSTNode* foundNode = searchRecursive(root, idToSearch, screenNameToSearch, useIdAsKey);
+        return (foundNode != nullptr) ? &(foundNode->data) : nullptr;
+    }
+
+    long long getSizeInBytes() const {
+        return calculateSizeRecursive(root);
+    }
+};
+
+// --- 4. Función Main (para probar el BST de forma interactiva con clock_t en milisegundos) ---
+int main() {
+    string datasetPath = "data.csv";
+
+    cout << "--- Prueba Interactiva del Árbol Binario de Búsqueda (BST) ---" << endl;
+    cout << "Cargando dataset completo desde '" << datasetPath << "'..." << endl;
+    vector<User> allUsers = readDataset(datasetPath);
+
+    if (allUsers.empty()) {
+        cerr << "Error: No se pudieron cargar usuarios desde el dataset. Asegúrate de que el archivo existe y es legible." << endl;
+        return 1;
+    }
+    cout << "Dataset completo cargado. Total de usuarios disponibles: " << allUsers.size() << endl;
+
+    int N;
+    cout << "\nIngresa el número de usuarios (N) para la prueba (max " << allUsers.size() << "): ";
+    cin >> N;
+
+    if (N <= 0 || N > allUsers.size()) {
+        cerr << "Número de usuarios inválido. Debe ser entre 1 y " << allUsers.size() << "." << endl;
+        return 1;
+    }
+
+    // Crea un subconjunto de usuarios para la prueba (los primeros N usuarios)
+    vector<User> testUsers(allUsers.begin(), allUsers.begin() + N);
+    cout << "\nPreparando prueba con " << N << " usuarios." << endl;
+
+    // --- EXPERIMENTO 1: Rendimiento en la Creación (Inserción) ---
+    cout << "\n--- Experimento 1: Rendimiento en la Creación del BST con N = " << N << " ---" << endl;
+    
+    // Prueba de creación con ID como clave
+    BST bst_id_key;
+    clock_t start_id_insert = clock();
+    for (const auto& user : testUsers) {
+        bst_id_key.insert(user, true);
+    }
+    clock_t end_id_insert = clock();
+    double timeBstIdInsert = static_cast<double>(end_id_insert - start_id_insert) * 1000.0 / CLOCKS_PER_SEC; // En milisegundos
+    cout << "Tiempo de inserción total en BST (ID como clave): " << fixed << setprecision(3) << timeBstIdInsert << " ms" << endl;
+
+    // Prueba de creación con ScreenName como clave
+    BST bst_screenname_key;
+    clock_t start_sn_insert = clock();
+    for (const auto& user : testUsers) {
+        bst_screenname_key.insert(user, false);
+    }
+    clock_t end_sn_insert = clock();
+    double timeBstSnInsert = static_cast<double>(end_sn_insert - start_sn_insert) * 1000.0 / CLOCKS_PER_SEC; // En milisegundos
+    cout << "Tiempo de inserción total en BST (ScreenName como clave): " << fixed << setprecision(3) << timeBstSnInsert << " ms" << endl;
+
+    // --- EXPERIMENTO 2: Tamaño de la Estructura ---
+    cout << "\n--- Experimento 2: Tamaño del BST con N = " << N << " ---" << endl;
+    cout << fixed << setprecision(2); // Set precision for KB output
+
+    cout << "Tamaño del BST (ID como clave): " << bst_id_key.getSizeInBytes() / 1024.0 << " KB" << endl;
+    cout << "Tamaño del BST (ScreenName como clave): " << bst_screenname_key.getSizeInBytes() / 1024.0 << " KB" << endl;
+
+    // --- EXPERIMENTO 3: Rendimiento en Búsquedas ---
+    cout << "\n--- Experimento 3: Rendimiento en Búsquedas en BST con N = " << N << " ---" << endl;
+    int numSearches = max(100, N / 10); // Realizar un número de búsquedas proporcional a N (ej. 10% de N, mínimo 100)
+    cout << "Realizando " << numSearches << " búsquedas por tipo." << endl;
+
+    random_device rd;
+    mt19937 gen(rd()); // Generador de números aleatorios
+
+    // 3.1 Búsquedas Exitosas
+    cout << "\n--- Búsquedas Exitosas (" << numSearches << " búsquedas) ---" << endl;
+
+    // Distribución para seleccionar índices aleatorios dentro del rango [0, N-1] para búsquedas exitosas
+    uniform_int_distribution<> distrib_successful(0, N - 1);
+
+    // BST (ID como clave) - Búsquedas exitosas
+    clock_t start_id_search_success = clock();
+    for (int i = 0; i < numSearches; ++i) {
+        int randomIndex = distrib_successful(gen); // Obtiene un índice aleatorio
+        bst_id_key.search(testUsers[randomIndex].id, "", true);
+    }
+    clock_t end_id_search_success = clock();
+    double timeBstIdSearchSuccess = static_cast<double>(end_id_search_success - start_id_search_success) * 1000.0 / CLOCKS_PER_SEC; // En milisegundos
+    cout << "  BST (ID) - Tiempo Búsquedas Exitosas: " << fixed << setprecision(3) << timeBstIdSearchSuccess << " ms (Promedio: " 
+              << timeBstIdSearchSuccess / numSearches << " ms)" << endl;
+
+    // BST (ScreenName como clave) - Búsquedas exitosas
+    clock_t start_sn_search_success = clock();
+    for (int i = 0; i < numSearches; ++i) {
+        int randomIndex = distrib_successful(gen); // Obtiene un índice aleatorio
+        bst_screenname_key.search(0, testUsers[randomIndex].screenName, false);
+    }
+    clock_t end_sn_search_success = clock();
+    double timeBstSnSearchSuccess = static_cast<double>(end_sn_search_success - start_sn_search_success) * 1000.0 / CLOCKS_PER_SEC; // En milisegundos
+    cout << "  BST (SN) - Tiempo Búsquedas Exitosas: " << fixed << setprecision(3) << timeBstSnSearchSuccess << " ms (Promedio: " 
+              << timeBstSnSearchSuccess / numSearches << " ms)" << endl;
+
+    // 3.2 Búsquedas No Exitosas
+    cout << "\n--- Búsquedas No Exitosas (" << numSearches << " búsquedas) ---" << endl;
+
+    // Distribución para seleccionar índices aleatorios fuera del rango [0, N-1] para búsquedas no exitosas
+    uniform_int_distribution<> distrib_unsuccessful(N, allUsers.size() - 1);
+    
+    // BST (ID como clave) - Búsquedas no exitosas
+    clock_t start_id_search_fail = clock();
+    for (int i = 0; i < numSearches; ++i) {
+        int randomIndex = distrib_unsuccessful(gen); // Obtiene un índice aleatorio
+        bst_id_key.search(allUsers[randomIndex].id, "", true); // Usa el ID de un usuario no insertado
+    }
+    clock_t end_id_search_fail = clock();
+    double timeBstIdSearchFail = static_cast<double>(end_id_search_fail - start_id_search_fail) * 1000.0 / CLOCKS_PER_SEC; // En milisegundos
+    cout << "  BST (ID) - Tiempo Búsquedas No Exitosas: " << fixed << setprecision(3) << timeBstIdSearchFail << " ms (Promedio: " 
+              << timeBstIdSearchFail / numSearches << " ms)" << endl;
+
+    // BST (ScreenName como clave) - Búsquedas no exitosas
+    clock_t start_sn_search_fail = clock();
+    for (int i = 0; i < numSearches; ++i) {
+        int randomIndex = distrib_unsuccessful(gen); // Obtiene un índice aleatorio
+        bst_screenname_key.search(0, allUsers[randomIndex].screenName, false); // Usa el ScreenName de un usuario no insertado
+    }
+    clock_t end_sn_search_fail = clock();
+    double timeBstSnSearchFail = static_cast<double>(end_sn_search_fail - start_sn_search_fail) * 1000.0 / CLOCKS_PER_SEC; // En milisegundos
+    cout << "  BST (SN) - Tiempo Búsquedas No Exitosas: " << fixed << setprecision(3) << timeBstSnSearchFail << " ms (Promedio: " 
+              << timeBstSnSearchFail / numSearches << " ms)" << endl;
+
+    cout << "\n--- Fin de la prueba del BST ---" << endl;
+
+    return 0;
+}
